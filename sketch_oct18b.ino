@@ -10,7 +10,8 @@
 const int pingPin = D7; // trigpin
 int inPin = D6;
 
-
+unsigned long lastTime = 0;
+const long sampleTime = 110;
 Servo servo;
 
 // --- กำหนดค่า Setpoint ที่ต้องการโดยตรง (หน่วยเป็นเมตร) ---
@@ -24,11 +25,11 @@ double P, I, D, U;
 double I_prec=0, U_prec=0, D_prec=0;
 boolean Saturation = false;
 
-double Kp = 8.6;
-double Ki = 1.1;
-double Kd = 6.3;
+double Kp = 4.0;
+double Ki = 0.55;
+double Kd = 3.0;
 float measure_1 (void);
-// --- ลบฟังก์ชัน measure_2 ออกไป ---
+
 void move_servo(int);
 
 
@@ -49,7 +50,12 @@ servo.attach(D8);
 }
 void loop()
 {
-    setpoint = desired_setpoint_meters;
+  unsigned long now = millis();
+    double actual_T = (double)(now - lastTime) / 1000.0;
+    if (actual_T >= (double)sampleTime / 1000.0) // 0.09 วินาที
+    {
+        lastTime = now;
+      setpoint = desired_setpoint_meters;
 
     // --- ไม่จำเป็นต้องใช้ digital filter กับ setpoint ที่เป็นค่าคงที่แล้ว ---
     // setpoint = 0.53*setpoint + 0.47*setpoint_prec;
@@ -111,7 +117,22 @@ void loop()
     y_prec = y;
     D_prec = D;
     setpoint_prec = setpoint;
+  }
 }
+
+void sortArray(float arr[], int len) {
+  for (int i = 0; i < len - 1; i++) {
+    for (int j = 0; j < len - i - 1; j++) {
+      if (arr[j] > arr[j + 1]) {
+        float temp = arr[j];
+        arr[j] = arr[j + 1];
+        arr[j + 1] = temp;
+      }
+    }
+  }
+}
+
+
 long microsecondsToCentimeters(long microseconds)
 {
 // ความเร็วเสียงในอากาศประมาณ 340 เมตร/วินาที หรือ 29 ไมโครวินาที/เซนติเมตร
@@ -119,22 +140,37 @@ long microsecondsToCentimeters(long microseconds)
 // เวลาที่ใช้คือ ระยะทางไปกลับ ดังนั้นระยะทางคือ ครึ่งหนึ่งของที่วัดได้
 return microseconds / 29 / 2;
 }
-float measure_1(){
-long duration, cm;
-pinMode(pingPin, OUTPUT);
-digitalWrite(pingPin, LOW);
-delayMicroseconds(2);
-digitalWrite(pingPin, HIGH);
-delayMicroseconds(5);
-digitalWrite(pingPin, LOW);
-pinMode(inPin, INPUT);
 
-    duration = pulseIn(inPin, HIGH, 25000);
-cm = microsecondsToCentimeters(duration);
-
-return (float)cm/100.0;
+float readSensor() {
+  long duration, cm;
+  pinMode(pingPin, OUTPUT);
+  digitalWrite(pingPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(pingPin, HIGH);
+  delayMicroseconds(5);
+  digitalWrite(pingPin, LOW);
+  pinMode(inPin, INPUT);
+  duration = pulseIn(inPin, HIGH, 25000);
+  cm = microsecondsToCentimeters(duration);
+  return (float)cm/100.0; 
 }
 
+#define MEDIAN_SAMPLES 5
+float measure_1(){
+  float readings[MEDIAN_SAMPLES];
+  
+  // 1. อ่านค่า 5 ครั้ง
+  for (int i = 0; i < MEDIAN_SAMPLES; i++) {
+    readings[i] = readSensor();
+    delay(4); // หน่วงเวลาระหว่างการอ่านเล็กน้อย
+  }
+  
+  // 2. เรียงลำดับค่า
+  sortArray(readings, MEDIAN_SAMPLES);
+  
+  // 3. คืนค่า "ตรงกลาง" (ค่ามัธยฐาน)
+  return readings[MEDIAN_SAMPLES / 2]; 
+}
 
 void move_servo(int u) {
     servo.write(u-map(u, 30, 150, 14, 3));
